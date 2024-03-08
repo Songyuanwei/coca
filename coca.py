@@ -1,32 +1,37 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
+from modules.clip.clip_config import CLIPTextCfg, CLIPVisionCfg
+from modules.encoders._common import (
+    LogitsProcessorList,
+    MaxLengthCriteria,
+    MinLengthLogitsProcessor,
+    RepetitionPenaltyLogitsProcessor,
+    StoppingCriteriaList,
+    TopKLogitsWarper,
+    TopPLogitsWarper,
+)
+from modules.encoders.beam_search import BeamSearchScorer
+from modules.encoders.image_encoder import ImageEncoder
+from modules.encoders.text_encoder import MultimodalTransformer, TextEncoder
 
 import mindspore as ms
 from mindspore import Parameter, Tensor, nn, ops
 
-from modules.clip.clip_config import CLIPTextCfg, CLIPVisionCfg
-from modules.encoders.text_encoder import TextEncoder, MultimodalTransformer
-from modules.encoders.image_encoder import ImageEncoder
-from modules.encoders._common import LogitsProcessorList, TopPLogitsWarper, TopKLogitsWarper, RepetitionPenaltyLogitsProcessor, MinLengthLogitsProcessor, MaxLengthCriteria, StoppingCriteriaList
-from modules.encoders.beam_search import BeamSearchScorer
+GENERATION_TYPES = {"top_k": TopKLogitsWarper, "top_p": TopPLogitsWarper, "beam_search": "beam_search"}
 
-GENERATION_TYPES = {
-    "top_k": TopKLogitsWarper,
-    "top_p": TopPLogitsWarper,
-    "beam_search": "beam_search"
-}
 
 class MultimodalCfg(CLIPTextCfg):
     def __init__(
-            self,
-            mlp_ratio: Optional[int] = 4,
-            dim_head: Optional[int] = 64,
-            heads: Optional[int] = 8,
-            n_queries: Optional[int] = 256,
-            attn_pooler_heads: Optional[int] = 8,
-            *args,
-            **kwargs):
+        self,
+        mlp_ratio: Optional[int] = 4,
+        dim_head: Optional[int] = 64,
+        heads: Optional[int] = 8,
+        n_queries: Optional[int] = 256,
+        attn_pooler_heads: Optional[int] = 8,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.mlp_ratio = mlp_ratio
         self.dim_head = dim_head
@@ -39,17 +44,18 @@ class CoCa(nn.Cell):
     """
     Coca Model
     """
+
     def __init__(
-            self,
-            embed_dim,
-            multimodal_cfg: MultimodalCfg,
-            text_cfg: CLIPTextCfg,
-            vision_cfg: CLIPVisionCfg,
-            quick_gelu: bool = False,
-            use_fp16: bool =False,
-            init_logit_scale: float = np.log(1/0.07),
-            pad_id: int = 0,
-            ):
+        self,
+        embed_dim,
+        multimodal_cfg: MultimodalCfg,
+        text_cfg: CLIPTextCfg,
+        vision_cfg: CLIPVisionCfg,
+        quick_gelu: bool = False,
+        use_fp16: bool = False,
+        init_logit_scale: float = np.log(1 / 0.07),
+        pad_id: int = 0,
+    ):
         super().__init__()
         multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
         text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
@@ -70,7 +76,7 @@ class CoCa(nn.Cell):
             proj_bias=text_cfg.proj_bias,
             output_tokens=text_cfg.output_tokens,
             use_quick_gelu=quick_gelu,
-            dtype=self.dtype
+            dtype=self.dtype,
         )
         self.visual = ImageEncoder(
             embed_dim=embed_dim,
@@ -105,37 +111,37 @@ class CoCa(nn.Cell):
         self.context_length = multimodal_cfg.context_length
         self.l2_normalize = ops.L2Normalize(axis=-1, epsilon=1e-12)
         self.cast = ops.Cast()
-    
+
     def _encode_image(self, images, normalize: bool = True):
         image_latent, token_embs = self.visual(images)
         image_latent = self.l2_normalize(image_latent) if normalize else image_latent
 
         return image_latent, token_embs
-    
+
     def _encode_text(self, text, normalize: bool = True):
         text_latent, tokens_emb = self.text(text)
         text_latent = self.l2_normalize(text_latent) if normalize else text_latent
 
         return text_latent, tokens_emb
-    
+
     def encode_image(self, images, normalize: bool = True):
         image_latent, _ = self._encode_image(images, normalize=normalize)
         return image_latent
-    
+
     def encode_text(self, text, normalize: bool = True):
         text_latent, _ = self._encode_text(text, normalize=normalize)
         return text_latent
-    
+
     def construct(self, images, text=None, image_latent=None, image_embs=None):
         if image_latent is None or image_embs is None:
             image_latent, image_embs = self._encode_image(images)
-        
+
         if text is None:
-            return {"image_features": image_latent, "image_embs":image_embs}
-        
+            return {"image_features": image_latent, "image_embs": image_embs}
+
         text_latent, token_embs = self._encode_text(text)
 
-        labels = text[:, -token_embs.shape[1]:]
+        labels = text[:, -token_embs.shape[1] :]
 
         # print(labels.shape)
         # print(text_latent.shape)
@@ -150,20 +156,18 @@ class CoCa(nn.Cell):
             "text_features": text_latent,
             "logits": logits,
             "labels": labels,
-            "logit_scale": self.logit_scale.exp()
+            "logit_scale": self.logit_scale.exp(),
         }
 
         return out_dict
 
-
-    
     def generate(
         self,
         image,
         text=None,
         seq_len=30,
         max_seq_len=77,
-        temperature=1.,
+        temperature=1.0,
         generation_type="beam_search",
         top_p=0.1,  # keep tokens in the 1 - top_p quantile
         top_k=1,  # keeps the top_k most probable tokens
@@ -175,9 +179,8 @@ class CoCa(nn.Cell):
         min_seq_len=5,
         stopping_criteria=None,
         repetition_penalty=1.0,
-        fixed_output_length=False # if True output.shape == (batch_size, seq_len)
-        ):
-
+        fixed_output_length=False,  # if True output.shape == (batch_size, seq_len)
+    ):
         assert seq_len > min_seq_len, "seq_len must be larger than min_seq_len"
 
         sot_token_id = 49406 if sot_token_id is None else sot_token_id
@@ -192,9 +195,7 @@ class CoCa(nn.Cell):
         if stopping_criteria is None:
             stopping_criteria = [MaxLengthCriteria(max_length=seq_len)]
 
-        stopping_criteria = StoppingCriteriaList(
-            stopping_criteria
-        )
+        stopping_criteria = StoppingCriteriaList(stopping_criteria)
 
         if generation_type == "beam_search":
             output = self._generate_beamsearch(
@@ -210,8 +211,8 @@ class CoCa(nn.Cell):
             )
             if fixed_output_length and output.shape[1] < seq_len:
                 return ops.cat(
-                    (output, ops.ones(output.shape[0], seq_len-output.shape[1], dtype=output.dtype) * self.pad_id),
-                    axis=1
+                    (output, ops.ones(output.shape[0], seq_len - output.shape[1], dtype=output.dtype) * self.pad_id),
+                    axis=1,
                 )
             return output
 
@@ -221,8 +222,7 @@ class CoCa(nn.Cell):
             logit_warper = GENERATION_TYPES[generation_type](top_k)
         else:
             raise ValueError(
-                f"generation_type has to be one of "
-                f"{'| ' + ' | '.join(list(GENERATION_TYPES.keys())) + ' |'}."
+                f"generation_type has to be one of " f"{'| ' + ' | '.join(list(GENERATION_TYPES.keys())) + ' |'}."
             )
 
         image_latent, image_embs = self._encode_image(image)
@@ -254,10 +254,10 @@ class CoCa(nn.Cell):
                 filtered_logits = logit_warper(x[~mask, :], filtered_logits)
                 probs = ops.softmax(filtered_logits / temperature, axis=-1)
 
-                if (cur_len + 1 == seq_len):
+                if cur_len + 1 == seq_len:
                     sample[~mask, :] = ops.ones((sum(~mask), 1), dtype=ms.int32) * eos_token_id
                 else:
-                    sample[~mask, :] =ops.multinomial(probs, 1, replacement=False)
+                    sample[~mask, :] = ops.multinomial(probs, 1, replacement=False)
 
             out = ops.cat((out, sample), axis=-1)
 
@@ -271,18 +271,18 @@ class CoCa(nn.Cell):
         return out
 
     def _generate_beamsearch(
-            self,
-            image_inputs,
-            pad_token_id=None,
-            eos_token_id=None,
-            sot_token_id=None,
-            num_beams=6,
-            num_beam_groups=3,
-            min_seq_len=5,
-            stopping_criteria=None,
-            logit_processor=None,
-            logit_warper=None,
-            ):
+        self,
+        image_inputs,
+        pad_token_id=None,
+        eos_token_id=None,
+        sot_token_id=None,
+        num_beams=6,
+        num_beam_groups=3,
+        min_seq_len=5,
+        stopping_criteria=None,
+        logit_processor=None,
+        logit_warper=None,
+    ):
         batch_size = image_inputs.shape[0]
         image_inputs = ops.repeat_interleave(image_inputs, num_beams, axis=0)
         # print(image_inputs.shape)
@@ -330,10 +330,7 @@ class CoCa(nn.Cell):
             # do one decoder step on all beams of all sentences in batch
             model_inputs = prepare_inputs_for_generation(input_ids=input_ids, image_inputs=image_inputs)
             outputs = self(
-                model_inputs['images'],
-                model_inputs['text'],
-                image_latent=image_latent,
-                image_embs=image_embs
+                model_inputs["images"], model_inputs["text"], image_latent=image_latent, image_embs=image_embs
             )
 
             for beam_group_idx in range(num_beam_groups):
@@ -351,7 +348,7 @@ class CoCa(nn.Cell):
                 group_input_ids = input_ids[batch_group_indices]
 
                 # select outputs of beams of currentg group only
-                next_token_logits = outputs['logits'][batch_group_indices, -1, :]
+                next_token_logits = outputs["logits"][batch_group_indices, -1, :]
                 vocab_size = next_token_logits.shape[-1]
 
                 next_token_scores_processed = logits_processor(
@@ -388,14 +385,16 @@ class CoCa(nn.Cell):
 
                 input_ids[batch_group_indices] = group_input_ids[beam_idx]
                 # print(group_input_ids.dtype)
-                
+
                 group_input_ids = ops.cat([group_input_ids[beam_idx, :], beam_next_tokens.unsqueeze(-1)], axis=-1)
                 current_tokens[batch_group_indices] = group_input_ids[:, -1]
 
                 # (beam_idx // group_size) -> batch_idx
                 # (beam_idx % group_size) -> offset of idx inside the group
                 reordering_indices[batch_group_indices] = (
-                    num_beams * ops.div(beam_idx, group_size, rounding_mode="floor") + group_start_idx + (beam_idx % group_size)
+                    num_beams * ops.div(beam_idx, group_size, rounding_mode="floor")
+                    + group_start_idx
+                    + (beam_idx % group_size)
                 )
 
             input_ids = ops.cat([input_ids, current_tokens.unsqueeze(-1)], axis=-1)
@@ -416,7 +415,8 @@ class CoCa(nn.Cell):
             max_length=stopping_criteria.max_length,
             beam_indices=final_beam_indices,
         )
-        return sequence_outputs['sequences']
+        return sequence_outputs["sequences"]
+
 
 def prepare_inputs_for_generation(input_ids, image_inputs, past=None, **kwargs):
     if past:

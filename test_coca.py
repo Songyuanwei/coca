@@ -1,15 +1,18 @@
 import yaml
-from PIL import Image
 from coca import CoCa
 from modules.encoders.tokenizer import BpeTokenizer
+from PIL import Image
+
 import mindspore as ms
-from mindspore import Tensor, ops
-from mindspore import dataset as ds
+from mindspore import ops
 from mindspore.dataset import vision
 
+
 def create_model(config):
-    
-    with open(config, "r", ) as f:
+    with open(
+        config,
+        "r",
+    ) as f:
         model_cfg = yaml.load(f, Loader=yaml.FullLoader)
     # print(model_cfg)
     model = CoCa(**model_cfg)
@@ -17,14 +20,10 @@ def create_model(config):
     return model
 
 
-
-
-
-
 if __name__ == "__main__":
     config = "/disk1/mindone/songyuanwei/mindone/examples/coca/coca_ViT-L-14.yaml"
     ms.set_context(mode=ms.PYNATIVE_MODE)
-    
+
     im = Image.open("/disk1/mindone/songyuanwei/mindone/examples/coca/cat.jpg").convert("RGB")
     im = vision.ToTensor()(im)
     im = ms.Tensor(im).expand_dims(0)
