@@ -295,10 +295,10 @@ class BeamSearchScorer(BeamScorer):
         # prepare for adding eos
         sent_lengths_max = sent_lengths.max() + 1
         sent_max_len = min(sent_lengths_max, max_length) if max_length is not None else sent_lengths_max
-        decoded: ms.Tensor = input_ids.new_ones((batch_size * self.num_beam_hyps_to_keep, sent_max_len))
+        decoded: ms.Tensor = input_ids.new_ones((int(batch_size * self.num_beam_hyps_to_keep), int(sent_max_len)))
 
         if len(best_indices) > 0 and best_indices[0] is not None:
-            indices: ms.Tensor = input_ids.new_ones((batch_size * self.num_beam_hyps_to_keep, sent_max_len))
+            indices: ms.Tensor = input_ids.new_ones((int(batch_size * self.num_beam_hyps_to_keep), int(sent_max_len)))
         else:
             indices = None
 

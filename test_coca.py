@@ -34,16 +34,10 @@ if __name__ == "__main__":
     # im = im.squeeze()
     print(im.shape)
     model = create_model(config)
-    # with open("coca_ms_weight.text", "w", ) as f:
-    #     for param in model.get_parameters():
-    #         name = param.name
-    #         value = param.data.asnumpy()
-    #         f.write(f"{name}: {value.shape} \n")
-    #         # print(name, value.shape)
 
     model.set_train(False)
     text = model.generate(im)
     tokenizer = BpeTokenizer()
-    # output = tokenizer.decode(text[0].asnumpy()).split("<endoftext>")[0].replace("<startoftext>", "")
-    output = tokenizer.decode(text[0].asnumpy())
+    output = tokenizer.decode(text[0].asnumpy()).split("<|endoftext|>")[0].replace("<|startoftext|>", "")
+
     print(output)

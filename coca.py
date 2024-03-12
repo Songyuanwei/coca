@@ -242,7 +242,7 @@ class CoCa(nn.Cell):
             x = out[:, -max_seq_len:]
             cur_len = x.shape[1]
             logits = self(image, x, image_latent=image_latent, image_embs=image_embs)["logits"][:, -1]
-            mask = (out[:, -1] == eos_token_id) | (out[:, -1] == pad_token_id)
+            mask = ms.Tensor(bool(out[:, -1] == eos_token_id) | bool(out[:, -1] == pad_token_id))
             sample = ops.ones((out.shape[0], 1), dtype=ms.int32) * pad_token_id
 
             if mask.all():
