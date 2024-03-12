@@ -85,7 +85,7 @@ class ResidualAttentionBlock(nn.Cell):
         if use_quick_gelu:
             self.gelu = QuickGELU()
         else:
-            self.gelu = nn.GELU()
+            self.gelu = nn.GELU(approximate=False)
 
         if is_cross_attention:
             self.ln_1_kv = LayerNorm([d_model], epsilon=epsilon).to_float(dtype)
@@ -241,7 +241,7 @@ class TextEncoder(nn.Cell):
         attn_mask = self.attn_mask
         if self.cls_emb is not None:
             ctx_len += 1
-            x = ops.cat([self.cls_emb + ops.zeros((x.shape[0], 1, x.shape[-1]), dtype=self.dtype), x], axis=1)
+            x = ops.cat([x, self.cls_emb + ops.zeros((x.shape[0], 1, x.shape[-1]), dtype=self.dtype)], axis=1)
             cls_mask = self.build_cls_mask(text)
             if attn_mask is not None:
                 attn_mask = attn_mask[None, :ctx_len, :ctx_len] + cls_mask[:, :ctx_len, :ctx_len]

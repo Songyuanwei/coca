@@ -4,11 +4,11 @@ from modules.encoders.tokenizer import BpeTokenizer
 from PIL import Image
 
 import mindspore as ms
-from mindspore import ops
+from mindspore import ops, load_checkpoint, load_param_into_net
 from mindspore.dataset import vision
 
 
-def create_model(config):
+def create_model(config, checkpoint_path = None):
     with open(
         config,
         "r",
@@ -16,6 +16,9 @@ def create_model(config):
         model_cfg = yaml.load(f, Loader=yaml.FullLoader)
     # print(model_cfg)
     model = CoCa(**model_cfg)
+    if checkpoint_path is not None:
+        checkpoint_param = load_checkpoint(checkpoint_path)
+        load_param_into_net(model, checkpoint_param)
 
     return model
 
